@@ -1,10 +1,11 @@
 using HarmonyLib;
+using System.Reflection;
 using Il2Cpp;
 using Il2CppInterop.Runtime.Injection;
 using MelonLoader;
 using UnityEngine;
 
-[assembly: MelonInfo(typeof(BetterShop.BetterShopMod), "gregMod.BetterShop", "1.0.1", "TeamGreg Modding")]
+[assembly: MelonInfo(typeof(BetterShop.BetterShopMod), "gregMod.BetterShop", "1.0.2", "TeamGreg Modding")]
 [assembly: MelonGame("Waseku", "Data Center")]
 
 namespace BetterShop
@@ -14,11 +15,14 @@ namespace BetterShop
         public static BetterShopMod Instance { get; private set; }
 
         private GameObject _go;
+        private HarmonyLib.Harmony _harmony;
 
         public override void OnInitializeMelon()
         {
             Instance = this;
             ClassInjector.RegisterTypeInIl2Cpp<ShopOverlay>();
+            _harmony = new HarmonyLib.Harmony("gregMod.BetterShop");
+            _harmony.PatchAll(Assembly.GetExecutingAssembly());
             MelonLogger.Msg("[BetterShop] Initialised.");
         }
 
