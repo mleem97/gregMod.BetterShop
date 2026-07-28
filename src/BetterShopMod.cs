@@ -4,7 +4,7 @@ using Il2CppInterop.Runtime.Injection;
 using MelonLoader;
 using UnityEngine;
 
-[assembly: MelonInfo(typeof(BetterShop.BetterShopMod), "gregMod.BetterShop", "1.0.0", "TeamGreg Modding")]
+[assembly: MelonInfo(typeof(BetterShop.BetterShopMod), "gregMod.BetterShop", "1.0.1", "TeamGreg Modding")]
 [assembly: MelonGame("Waseku", "Data Center")]
 
 namespace BetterShop

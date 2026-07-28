@@ -259,7 +259,7 @@ namespace BetterShop
             int rows  = count == 0 ? 1 : Mathf.CeilToInt((float)count / cols);
             float contentH = rows * (CARD_H + 8f);
 
-            _itemScroll = GUI.BeginScrollView(area, _itemScroll,
+            _itemScroll = SafeScroll.Begin(area, _itemScroll,
                 new Rect(0f, 0f, area.width - 18f, contentH));
 
             if (count == 0)
@@ -277,7 +277,7 @@ namespace BetterShop
                     _filtered[i], balance);
             }
 
-            GUI.EndScrollView();
+            SafeScroll.End();
         }
 
         private void DrawCard(Rect r, BShopItem item, float balance)
