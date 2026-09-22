@@ -52,7 +52,7 @@ namespace BetterShop
         // ── Layout (Webshop: ~90% × 90% des Screens, helle Store-Optik) ─────
         private const float CART_W    = 300f;
         private const float CARD_W    = 224f;
-        private const float CARD_H    = 212f;
+        private const float CARD_H    = 248f;
         private const int   WIN_ID    = 424242;
         private const float HEADER_H  = 64f;
         private Rect _winRect;
@@ -78,7 +78,7 @@ namespace BetterShop
         private static readonly string[] DefaultCategories =
             { "All", "Servers", "Networking", "Racks", "Cables", "Mods", "Other" };
 
-        private static readonly string[] SortLabels = { "Price ↑", "Price ↓", "Name" };
+        private static readonly string[] SortLabels = { "Cheapest", "Priciest", "Name" };
 
         // ── Styles (heller Webshop: weiss/Hellgrau, Navy-Header, Orange) ────
         private bool       _stylesReady;
@@ -382,9 +382,9 @@ namespace BetterShop
             GUI.Label(new Rect(searchR.x + 8f, searchR.y + 5f, searchR.width - 16f, 18f),
                       _search.Length > 0 ? _search + "▌" : "Search servers, switches, cables ...", _searchHintStyle);
 
-            // Balance
+            // Balance (links vom Warenkorb, ohne Ueberlappung)
             float balance = GetFrameBalance();
-            GUI.Label(new Rect(W - PAD - 330f, 22f, 200f, 22f),
+            GUI.Label(new Rect(W - PAD - 364f, 22f, 160f, 22f),
                 $"{balance:N0} ₵", _balanceStyle);
 
             // Warenkorb-Button mit Stueckzahl
@@ -517,10 +517,9 @@ namespace BetterShop
             }
             cy += 18f;
 
-            // Preis + Add-to-Cart (unten)
+            // Preis (eigene Zeile nach Verfuegbarkeit, keine Ueberlappung)
             float btnH = 30f;
-            float priceY = r.y + r.height - btnH - 30f;
-            GUI.Label(new Rect(cx, priceY, cw, 24f), $"{item.Price:N0} ₵", _cardPriceStyle);
+            GUI.Label(new Rect(cx, cy, cw, 24f), $"{item.Price:N0} ₵", _cardPriceStyle);
 
             bool canAdd = !locked && balance >= item.Price;
             var btnRect = new Rect(cx, r.y + r.height - btnH - 6f, cw, btnH);
