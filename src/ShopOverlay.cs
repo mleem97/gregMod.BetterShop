@@ -339,7 +339,7 @@ namespace BetterShop
             {
                 var sty = _sortMode == i ? _sortActive : _sortBtn;
                 sx -= 86f;
-                if (GUI.Button(new Rect(sx, y, 82f, 24f), SortLabels[i], sty))
+                if (BtnOnce(new Rect(sx, y, 82f, 24f), SortLabels[i], 20 + i, sty))
                 { _sortMode = i; InvalidateFilter(); }
                 sx -= 4f;
             }
@@ -390,11 +390,11 @@ namespace BetterShop
             // Warenkorb-Button mit Stueckzahl
             int cartCount = 0;
             try { cartCount = _shop?.cartUIItems?.Count ?? 0; } catch { }
-            if (GUI.Button(new Rect(W - PAD - 190f, 17f, 110f, 30f), $"Cart ({cartCount})", _cartBtn))
+            if (BtnOnce(new Rect(W - PAD - 190f, 17f, 110f, 30f), $"Cart ({cartCount})", 1, _cartBtn))
             { /* Warenkorb ist rechts dauerhaft sichtbar */ }
 
             // Schliessen
-            if (GUI.Button(new Rect(W - PAD - 64f, 17f, 64f, 30f), "× Close", _closeBtn))
+            if (BtnOnce(new Rect(W - PAD - 64f, 17f, 64f, 30f), "× Close", 2, _closeBtn))
             { CloseShop(); return; }
         }
 
@@ -403,6 +403,7 @@ namespace BetterShop
         private void DrawCategoryPills(Rect r)
         {
             float x = r.x;
+            int pillIdx = 0;
             foreach (var cat in GetCategories())
             {
                 _catCounts.TryGetValue(cat, out int count);
@@ -414,13 +415,14 @@ namespace BetterShop
                 float w = Mathf.Clamp(34f + label.Length * 7.2f, 70f, 190f);
                 if (x + w > r.xMax) break;
 
-                if (GUI.Button(new Rect(x, r.y, w, r.height), label, active ? _pillActive : _pillBtn))
+                if (BtnOnce(new Rect(x, r.y, w, r.height), label, 10 + pillIdx, active ? _pillActive : _pillBtn))
                 {
                     _activeCategory = cat;
                     InvalidateFilter();
                     _itemScroll = Vector2.zero;
                 }
                 x += w + 8f;
+                pillIdx++;
             }
         }
 
@@ -523,8 +525,9 @@ namespace BetterShop
 
             bool canAdd = !locked && balance >= item.Price;
             var btnRect = new Rect(cx, r.y + r.height - btnH - 6f, cw, btnH);
+            int addKey = item.IsModItem ? 500000 + item.ItemId : item.ItemId;
             GUI.color = canAdd ? Color.white : new Color(1f, 1f, 1f, 0.55f);
-            if (GUI.Button(btnRect, "Add to Cart", canAdd ? _addBtn : _addDisabled))
+            if (BtnOnce(btnRect, "Add to Cart", addKey, canAdd ? _addBtn : _addDisabled))
             {
                 if (canAdd) AddToCart(item);
             }
@@ -586,10 +589,12 @@ namespace BetterShop
                 _cartScroll = SafeScroll.Begin(listR, _cartScroll,
                     new Rect(0f, 0f, listR.width - 14f, contentH));
                 float ry = 0f;
+                int rowIdx = 0;
                 foreach (var ci in items)
                 {
-                    DrawCartRow(new Rect(0f, ry, listR.width - 14f, rowH), ci);
+                    DrawCartRow(new Rect(0f, ry, listR.width - 14f, rowH), ci, rowIdx);
                     ry += rowH + 4f;
+                    rowIdx++;
                 }
                 SafeScroll.End();
             }
@@ -604,7 +609,7 @@ namespace BetterShop
             GUI.Label(new Rect(cx, cy, cw, 22f), $"Total:  {cartTotal:N0} ₵", _cartTotalStyle);
             cy += 26f;
 
-            if (GUI.Button(new Rect(cx, cy, cw, 28f), "Clear", _clearBtn))
+            if (BtnOnce(new Rect(cx, cy, cw, 28f), "Clear", 30, _clearBtn))
             {
                 try { _shop?.ButtonClear(); } catch { }
             }
@@ -612,7 +617,7 @@ namespace BetterShop
 
             bool canCheckout = cartTotal > 0 && balance >= cartTotal;
             GUI.color = canCheckout ? Color.white : new Color(1f, 1f, 1f, 0.55f);
-            if (GUI.Button(new Rect(cx, cy, cw, 32f), "Proceed to Checkout →", _checkoutBtn)
+            if (BtnOnce(new Rect(cx, cy, cw, 32f), "Proceed to Checkout →", 31, _checkoutBtn)
                 && canCheckout)
             {
                 GUI.color = Color.white;
@@ -623,7 +628,7 @@ namespace BetterShop
         }
 
         [HideFromIl2Cpp]
-        private void DrawCartRow(Rect r, ShopCartItem ci)
+        private void DrawCartRow(Rect r, ShopCartItem ci, int rowIdx)
         {
             string name = "?";
             int qty = 1, line = 0;
@@ -639,12 +644,12 @@ namespace BetterShop
             GUI.Label(new Rect(r.x + 6f, r.y + 22f, r.width - 76f, 18f),
                 $"×{qty}  ·  {line:N0} ₵", _dimStyle);
 
-            if (GUI.Button(new Rect(r.xMax - 64f, r.y + 9f, 28f, 26f), "−", _sortBtn))
+            if (BtnOnce(new Rect(r.xMax - 64f, r.y + 9f, 28f, 26f), "−", 600000 + rowIdx * 2, _sortBtn))
             {
                 try { ci.OnRemoveClicked(); } catch (Exception ex)
                 { MelonLogger.Error($"[BetterShop] Cart− failed: {ex.GetBaseException().Message}"); }
             }
-            if (GUI.Button(new Rect(r.xMax - 32f, r.y + 9f, 28f, 26f), "+", _sortBtn))
+            if (BtnOnce(new Rect(r.xMax - 32f, r.y + 9f, 28f, 26f), "+", 600001 + rowIdx * 2, _sortBtn))
             {
                 try { ci.OnAddClicked(); } catch (Exception ex)
                 { MelonLogger.Error($"[BetterShop] Cart+ failed: {ex.GetBaseException().Message}"); }
@@ -919,6 +924,55 @@ namespace BetterShop
             GUI.color = new Color(0.14f, 0.17f, 0.22f, 0.8f);
             GUI.DrawTexture(new Rect(x, y, w, 1f), _whiteTex);
             GUI.color = Color.white;
+        }
+
+        // ── Klick-sichere Buttons (explizites MouseDown/MouseUp) ─────────────
+        // GUI.Window auf IL2CPP malt oft Hover auf GUI.Button, feuert aber nie
+        // Klicks. Deshalb: eigener Control-Flow via GetControlID (wie IPAM).
+        // Dedupe schuetzt vor Doppelfeuer bei Layout/Repaint im selben Frame.
+        private int _btnDedupeFrame = -1;
+        private int _btnDedupeKey;
+
+        private bool BtnOnce(Rect r, string text, int key, GUIStyle style)
+        {
+            if (!ControlMouseUp(r, key, style ?? GUI.skin.button, new GUIContent(text), out bool clicked))
+                return false;
+            int f = Time.frameCount;
+            if (f == _btnDedupeFrame && key == _btnDedupeKey) return false;
+            _btnDedupeFrame = f;
+            _btnDedupeKey = key;
+            return clicked;
+        }
+
+        private static bool ControlMouseUp(Rect r, int hint, GUIStyle style, GUIContent content, out bool clicked)
+        {
+            clicked = false;
+            if (style == null) style = GUI.skin.button;
+
+            int id = GUIUtility.GetControlID(hint, FocusType.Passive, r);
+            var e = Event.current;
+            if (e == null) return false;
+
+            switch (e.GetTypeForControl(id))
+            {
+                case EventType.MouseDown:
+                    if (GUI.enabled && e.button == 0 && r.Contains(e.mousePosition))
+                    {
+                        GUIUtility.hotControl = id;
+                        e.Use();
+                    }
+                    break;
+                case EventType.MouseUp:
+                    if (GUIUtility.hotControl != id) break;
+                    GUIUtility.hotControl = 0;
+                    e.Use();
+                    if (GUI.enabled && r.Contains(e.mousePosition)) clicked = true;
+                    break;
+                case EventType.Repaint:
+                    style.Draw(r, content, id);
+                    break;
+            }
+            return clicked;
         }
 
         // ── Style initialisation ──────────────────────────────────────────────
