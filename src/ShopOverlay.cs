@@ -24,6 +24,7 @@ namespace BetterShop
         public Texture2D Icon;  // may be null
         public string Category;
         public bool   IsModItem;
+        public ShopItem Source; // vanilla component (XP-unlock); null for mod items
     }
 
     // ── Overlay MonoBehaviour ─────────────────────────────────────────────────
@@ -109,12 +110,60 @@ namespace BetterShop
         // ── Rebuild flag (deferred to first OnGUI, not synchronous in patch) ──
         private bool _needsRebuild;
 
+        // ── Custom-Color-Handoff (Vanilla-Picker liegt unter IMGUI) ──────────
+        // Bei Farb-Items: Overlay kurz schliessen (Vanilla restaurieren), damit
+        // der Vanilla-Farbpicker bedienbar ist. Danach automatisch wieder oeffnen.
+        private bool _awaitColorPick;
+        private float _handoffAt;
+        private GameObject _colorPickerGo;
+        private const float COLOR_PICK_TIMEOUT = 90f;
+
         // ── Vanilla panel tracking (we hide the vanilla UI group while open — must restore!) ──
         private readonly List<GameObject> _hiddenVanilla = new();
 
         // ── Unity lifecycle ───────────────────────────────────────────────────
 
         private void Awake() { Instance = this; }
+
+        /// <summary>
+        /// Pollt den Vanilla-Farbpicker: sobald er zu ist, Overlay wieder oeffnen.
+        /// Reine Beobachtung — wirft nie, aendert nichts am Vanilla-Flow.
+        /// </summary>
+        private void Update()
+        {
+            if (!_awaitColorPick) return;
+            bool pickerClosed = false;
+            try
+            {
+                if (_colorPickerGo == null) pickerClosed = true;
+                else
+                {
+                    var _ = _colorPickerGo.transform; // liveness (throws if destroyed)
+                    pickerClosed = !_colorPickerGo.activeInHierarchy;
+                }
+            }
+            catch { pickerClosed = true; }
+
+            bool timedOut = false;
+            try { timedOut = Time.unscaledTime - _handoffAt > COLOR_PICK_TIMEOUT; } catch { }
+
+            if (timedOut && !pickerClosed)
+            {
+                // Picker hängt (oder unsichtbar gesteuert): Vanilla-Flow lassen.
+                _awaitColorPick = false;
+                return;
+            }
+            if (!pickerClosed) return;
+
+            _awaitColorPick = false;
+            try
+            {
+                if (_open || !IsShopAlive()) return;
+                MelonLogger.Msg("[BetterShop] Color picker closed — reopening store.");
+                OpenInternal(_shop);
+            }
+            catch { }
+        }
 
         /// <summary>
         /// Tries to open the overlay for the given shop. Returns false (leaving the
@@ -505,13 +554,18 @@ namespace BetterShop
             GUI.color = Color.white;
             cy += 17f;
 
-            // Verfuegbarkeit
+            // Verfuegbarkeit + Unlock
             bool locked = !item.IsUnlocked;
+            bool canUnlock = false;
             if (locked)
             {
+                float xp = ReadXp();
+                canUnlock = item.Source != null && xp >= item.XpToUnlock;
                 GUI.Label(new Rect(cx, cy, cw, 15f),
-                    item.XpToUnlock > 0 ? $"Req. {item.XpToUnlock:N0} XP to unlock" : "Locked",
-                    _stockLock);
+                    item.XpToUnlock > 0
+                        ? (canUnlock ? $"Unlock ready ({xp:N0} XP)" : $"Req. {item.XpToUnlock:N0} XP (you: {xp:N0})")
+                        : "Locked",
+                    canUnlock ? _stockOk : _stockLock);
             }
             else
             {
@@ -523,15 +577,65 @@ namespace BetterShop
             float btnH = 30f;
             GUI.Label(new Rect(cx, cy, cw, 24f), $"{item.Price:N0} ₵", _cardPriceStyle);
 
-            bool canAdd = !locked && balance >= item.Price;
             var btnRect = new Rect(cx, r.y + r.height - btnH - 6f, cw, btnH);
-            int addKey = item.IsModItem ? 500000 + item.ItemId : item.ItemId;
+            int btnKey = item.IsModItem ? 500000 + item.ItemId : item.ItemId;
+            if (locked)
+            {
+                if (canUnlock)
+                {
+                    GUI.color = Color.white;
+                    if (BtnOnce(btnRect, $"Unlock ({item.XpToUnlock:N0} XP)", btnKey, _addBtn))
+                        UnlockItem(item);
+                    GUI.color = Color.white;
+                }
+                else
+                {
+                    GUI.color = new Color(1f, 1f, 1f, 0.55f);
+                    BtnOnce(btnRect, "Locked", btnKey, _addDisabled);
+                    GUI.color = Color.white;
+                }
+                return;
+            }
+
+            bool canAdd = balance >= item.Price;
+            if (item.IsCustomColor)
+            {
+                GUI.color = Color.white;
+                if (BtnOnce(btnRect, "Pick Color & Add", btnKey, _addBtn))
+                    AddCustomColorItem(item);
+                GUI.color = Color.white;
+                return;
+            }
             GUI.color = canAdd ? Color.white : new Color(1f, 1f, 1f, 0.55f);
-            if (BtnOnce(btnRect, "Add to Cart", addKey, canAdd ? _addBtn : _addDisabled))
+            if (BtnOnce(btnRect, "Add to Cart", btnKey, canAdd ? _addBtn : _addDisabled))
             {
                 if (canAdd) AddToCart(item);
             }
             GUI.color = Color.white;
+        }
+
+        // ── XP-Unlock (Vanilla-Logik via ShopItem.UnlockButton) ──────────────
+
+        [HideFromIl2Cpp]
+        private void UnlockItem(BShopItem item)
+        {
+            try
+            {
+                if (item?.Source == null) return;
+                var _ = item.Source.gameObject; // liveness check (throws if destroyed)
+                item.Source.UnlockButton();
+                MelonLogger.Msg($"[BetterShop] Unlock requested: {item.Name} ({item.XpToUnlock:N0} XP).");
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Error($"[BetterShop] Unlock failed: {ex.GetBaseException().Message}");
+                return;
+            }
+            try { RebuildItemList(); }
+            catch (Exception ex)
+            {
+                MelonLogger.Error($"[BetterShop] Rebuild after unlock: {ex.GetBaseException().Message}");
+            }
         }
 
         // ── Cart sidebar ──────────────────────────────────────────────────────
@@ -691,6 +795,46 @@ namespace BetterShop
             }
         }
 
+        /// <summary>
+        /// Custom-Color-Items: Vanilla oeffnet den FlexibleColorPicker (uGUI) —
+        /// der liegt unter unserem IMGUI-Fenster und waere unbedienbar. Deshalb:
+        /// Kauf anstossen (Picker oeffnet), unser Overlay schliessen (Vanilla
+        /// restaurieren), nach Picker-Ende automatisch wieder oeffnen (Update).
+        /// </summary>
+        [HideFromIl2Cpp]
+        private void AddCustomColorItem(BShopItem item)
+        {
+            try
+            {
+                _shop?.ButtonBuyShopItem(item.ItemId, item.Price, item.ItemType,
+                                         item.Name, true);
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Error($"[BetterShop] CustomColor Add failed: {ex}");
+                return;
+            }
+
+            try
+            {
+                GameObject picker = null;
+                try
+                {
+                    var fcp = _shop != null ? _shop.flexibleColorPicker : null;
+                    if (fcp != null) picker = fcp.gameObject;
+                }
+                catch { picker = null; }
+                _colorPickerGo = picker;
+                _handoffAt = Time.unscaledTime;
+                _awaitColorPick = true;
+            }
+            catch { _awaitColorPick = false; }
+
+            MelonLogger.Msg("[BetterShop] Custom color: pick a color in the vanilla picker — store reopens after.");
+            _open = false;
+            RestoreVanillaPanel();
+        }
+
         private void Checkout()
         {
             try
@@ -740,6 +884,7 @@ namespace BetterShop
                         Icon         = so.sprite?.texture,
                         Category     = MapCategory(so.itemType),
                         IsModItem    = false,
+                        Source       = si,
                     });
                 }
             }
@@ -903,6 +1048,13 @@ namespace BetterShop
         private static float ReadBalance()
         {
             try   { return PlayerManager.instance?.playerClass?.money ?? 0f; }
+            catch { return 0f; }
+        }
+
+        /// <summary>Direct read from PlayerManager.playerClass.xp — no reflection needed.</summary>
+        private static float ReadXp()
+        {
+            try   { return PlayerManager.instance?.playerClass?.xp ?? 0f; }
             catch { return 0f; }
         }
 
