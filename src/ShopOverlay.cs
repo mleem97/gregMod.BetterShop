@@ -6,6 +6,7 @@ using UnityEngine.UI;
 using Il2Cpp;
 using MelonLoader;
 using UnityEngine;
+using Il2CppInterop.Runtime.Attributes;
 
 namespace BetterShop
 {
@@ -41,19 +42,36 @@ namespace BetterShop
         private string _activeCategory = "All";
         private int    _sortMode       = 0;   // 0=Price↑  1=Price↓  2=Name
         private Vector2 _itemScroll;
+        private Vector2 _cartScroll;
 
         // Filter-dirty cache keys
         private string _lastCategory;
         private string _lastSearch;
         private int    _lastSort = -1;
 
-        // ── Layout ─────────────────────────────────────────────────────────────
-        private const float WIN_W     = 1100f;
-        private const float WIN_H     = 700f;
+        // ── Layout (IPAM-like navy modal; size clamps to screen) ──────────────
         private const float SIDEBAR_W = 148f;
+        private const float CART_W    = 264f;
         private const float CARD_W    = 192f;
         private const float CARD_H    = 158f;
+        private const int   WIN_ID    = 424242;
         private Rect _winRect;
+        private bool _winPlaced;
+
+        private float WinW => Mathf.Min(1400f, Mathf.Max(900f, Screen.width  - 60f));
+        private float WinH => Mathf.Min(760f,  Mathf.Max(560f, Screen.height - 80f));
+
+        private void ClampWindow()
+        {
+            float w = WinW, h = WinH;
+            float x = _winPlaced ? _winRect.x : (Screen.width  - w) * 0.5f;
+            float y = _winPlaced ? _winRect.y : (Screen.height - h) * 0.5f;
+            _winRect = new Rect(
+                Mathf.Clamp(x, 8f, Mathf.Max(8f, Screen.width  - w - 8f)),
+                Mathf.Clamp(y, 8f, Mathf.Max(8f, Screen.height - h - 8f)),
+                w, h);
+            _winPlaced = true;
+        }
 
         // ── Categories + sort ─────────────────────────────────────────────────
         private static readonly string[] DefaultCategories =
@@ -85,38 +103,139 @@ namespace BetterShop
         // ── Rebuild flag (deferred to first OnGUI, not synchronous in patch) ──
         private bool _needsRebuild;
 
+        // ── Vanilla panel tracking (we hide the vanilla UI group while open — must restore!) ──
+        private readonly List<GameObject> _hiddenVanilla = new();
+
         // ── Unity lifecycle ───────────────────────────────────────────────────
 
         private void Awake() { Instance = this; }
 
-        public static void Open(ComputerShop shop)
-            => Instance?.OpenInternal(shop);
-
-        private void OpenInternal(ComputerShop shop)
+        /// <summary>
+        /// Tries to open the overlay for the given shop. Returns false (leaving the
+        /// vanilla UI untouched) when the overlay or shop isn't usable.
+        /// </summary>
+        public static bool Open(ComputerShop shop)
         {
+            if (Instance == null || shop == null)
+                return false;
+            return Instance.OpenInternal(shop);
+        }
+
+        private bool OpenInternal(ComputerShop shop)
+        {
+            GameObject panel = null;
+            try { panel = shop.shopScreen; } catch { panel = null; }
+            if (panel == null)
+                return false;
+
             _shop          = shop;
             _open          = true;
             _search        = "";
             _activeCategory = "All";
             _sortMode      = 0;
             _itemScroll    = Vector2.zero;
+            _cartScroll    = Vector2.zero;
             _lastCategory  = null; // trigger filter refresh
-            _winRect = new Rect(
-                (Screen.width  - WIN_W) * 0.5f,
-                (Screen.height - WIN_H) * 0.5f,
-                WIN_W, WIN_H);
+            ClampWindow();
+
+            // Hide the whole vanilla shop UI group (not just shopScreen) so no
+            // vanilla UI shines through behind our overlay. Game logic
+            // (cart data, buy/checkout methods) doesn't need visuals.
+            // Canvas-Typ bewusst vermieden (fehlt in IL2CPP-Dummies):
+            // stattdessen alle Geschwister unter dem Parent mitschalten.
+            try
+            {
+                HideVanillaGroup(panel);
+            }
+            catch { _hiddenVanilla.Clear(); }
+
             _needsRebuild = true;   // deferred — done on first OnGUI frame
+            return true;
+        }
+
+        /// <summary>Hides the vanilla UI group (panel + siblings). Restored on close.</summary>
+        private void HideVanillaGroup(GameObject panel)
+        {
+            _hiddenVanilla.Clear();
+            if (panel == null) return;
+            try
+            {
+                Transform parent = null;
+                try { parent = panel.transform?.parent; } catch { parent = null; }
+                if (parent == null)
+                {
+                    try { if (panel.activeSelf) { panel.SetActive(false); _hiddenVanilla.Add(panel); } }
+                    catch { }
+                    return;
+                }
+                int n = 0;
+                try { n = parent.childCount; } catch { n = 0; }
+                for (int i = 0; i < n; i++)
+                {
+                    GameObject go = null;
+                    try { go = parent.GetChild(i)?.gameObject; } catch { go = null; }
+                    if (go == null) continue;
+                    try { if (go.activeSelf) { go.SetActive(false); _hiddenVanilla.Add(go); } }
+                    catch { }
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>Restores everything we hid, if still alive.</summary>
+        private void RestoreVanillaPanel()
+        {
+            if (_hiddenVanilla.Count == 0)
+                return;
+            foreach (var go in _hiddenVanilla)
+            {
+                if (go == null) continue;
+                try
+                {
+                    // Accessing a destroyed IL2CPP object throws — treat as gone.
+                    var t = go.transform;
+                    go.SetActive(true);
+                }
+                catch { /* destroyed with its scene — nothing to restore */ }
+            }
+            _hiddenVanilla.Clear();
+        }
+
+        /// <summary>Checks the stored shop reference is still alive.</summary>
+        private bool IsShopAlive()
+        {
+            try
+            {
+                if (_shop == null)
+                    return false;
+                var go = _shop.gameObject;
+                return go != null;
+            }
+            catch { return false; }
         }
 
         private void OnGUI()
         {
             if (!_open) return;
 
-            // Deferred item list build (avoids blocking the Harmony patch call)
+            // Shop destroyed underneath us (scene change) — restore vanilla UI and bail.
+            if (!IsShopAlive())
+            {
+                RestoreVanillaPanel();
+                _open = false;
+                return;
+            }
+
+            // Deferred item list build (avoids blocking the Harmony patch call).
+            // Wrapped: IL2CPP generic lookups can throw on stripped builds.
             if (_needsRebuild)
             {
                 _needsRebuild = false;
-                RebuildItemList();
+                try { RebuildItemList(); }
+                catch (Exception ex)
+                {
+                    MelonLogger.Error($"[BetterShop] RebuildItemList: {ex.GetBaseException().Message}");
+                }
             }
 
             // Keyboard input (search + Escape)
@@ -141,49 +260,65 @@ namespace BetterShop
             }
 
             EnsureStyles();
+            ClampWindow();
 
-            // Full-screen dim
-            GUI.color = new Color(0f, 0f, 0f, 0.75f);
+            // Full-screen dim (IPAM-like)
+            GUI.color = new Color(0f, 0f, 0f, 0.5f);
             GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), _whiteTex);
             GUI.color = Color.white;
 
-            GUI.Box(_winRect, GUIContent.none, _winStyle);
-            GUI.BeginGroup(_winRect);
-            try   { DrawWindow(); }
+            try
+            {
+                _winRect = GUI.Window(WIN_ID, _winRect, (GUI.WindowFunction)DrawWindowFunc, GUIContent.none, _winStyle);
+            }
             catch (Exception ex) { MelonLogger.Error($"[BetterShop] DrawWindow: {ex}"); }
-            GUI.EndGroup();
         }
 
-        // ── Window ────────────────────────────────────────────────────────────
+        private void DrawWindowFunc(int id)
+        {
+            try   { DrawWindow(); }
+            catch (Exception ex) { MelonLogger.Error($"[BetterShop] DrawWindow: {ex}"); }
+            // Drag via title bar area only (top 30px) so content clicks don't move the window.
+            try
+            {
+                var e = Event.current;
+                if (e != null && (e.type == EventType.MouseDown || e.type == EventType.MouseDrag)
+                    && new Rect(0f, 0f, _winRect.width, 30f).Contains(e.mousePosition))
+                    GUI.DragWindow(new Rect(0f, 0f, _winRect.width, 30f));
+            }
+            catch { }
+        }
+
+        // ── Window (IPAM navy modal: title bar, sidebar, grid, cart) ──────────
 
         private void DrawWindow()
         {
+            float W = _winRect.width;
+            float H = _winRect.height;
             const float PAD = 12f;
-            float y = PAD;
 
-            // Header
-            GUI.Label(new Rect(PAD, y, 180f, 28f), "SHOP", _titleStyle);
+            // IPAM-like 2px border
+            GUI.color = new Color(0.14f, 0.17f, 0.22f, 0.8f);
+            GUI.DrawTexture(new Rect(0f, 0f, W, 2f), _whiteTex);
+            GUI.DrawTexture(new Rect(0f, H - 2f, W, 2f), _whiteTex);
+            GUI.DrawTexture(new Rect(0f, 0f, 2f, H), _whiteTex);
+            GUI.DrawTexture(new Rect(W - 2f, 0f, 2f, H), _whiteTex);
+            GUI.color = Color.white;
 
-            // Compute balance once per frame (cached)
-            float balance  = GetFrameBalance();
-            int   cartTotal = _shop?.currentPrice ?? 0;
-            int   cartCount = _shop?.cartUIItems?.Count ?? 0;
+            // Title bar
+            GUI.color = new Color(0.06f, 0.08f, 0.11f, 0.9f);
+            GUI.DrawTexture(new Rect(0f, 0f, W, 30f), _whiteTex);
+            GUI.color = Color.white;
+            GUI.Label(new Rect(PAD, 5f, 220f, 20f), "SHOP", _titleStyle);
 
-            GUI.Label(new Rect(PAD + 190f, y + 6f, 200f, 20f),
+            float balance = GetFrameBalance();
+            GUI.Label(new Rect(PAD + 200f, 6f, 240f, 20f),
                 $"Balance:  {balance:N2} ₵", _labelStyle);
 
-            if (cartTotal > 0)
-            {
-                GUI.color = new Color(1f, 0.85f, 0.28f);
-                GUI.Label(new Rect(PAD + 400f, y + 6f, 220f, 20f),
-                    $"Cart: {cartCount} item{(cartCount == 1 ? "" : "s")} · {cartTotal:N0} ₵", _labelStyle);
-                GUI.color = Color.white;
-            }
-
-            if (GUI.Button(new Rect(WIN_W - PAD - 90f, y, 90f, 28f), "← Back", _closeBtn))
+            if (GUI.Button(new Rect(W - PAD - 90f, 3f, 90f, 24f), "← Back", _closeBtn))
             { CloseShop(); return; }
 
-            y += 38f;
+            float y = 36f;
 
             // Search + sort row
             GUI.Label(new Rect(PAD + SIDEBAR_W + 6f, y + 3f, 52f, 20f), "Search:", _dimStyle);
@@ -203,26 +338,28 @@ namespace BetterShop
             y += 32f;
 
             // Divider
-            Divider(PAD, y, WIN_W - PAD * 2f); y += 5f;
+            Divider(PAD, y, W - PAD * 2f); y += 5f;
 
-            // Body
-            float bodyH = WIN_H - y - 52f;
+            // Body: sidebar | grid | cart
+            float bodyH = H - y - 52f;
             DrawSidebar(new Rect(PAD, y, SIDEBAR_W, bodyH));
-            DrawGrid(new Rect(PAD + SIDEBAR_W + 5f, y, WIN_W - PAD * 2f - SIDEBAR_W - 5f, bodyH), balance);
+            float gridW = W - PAD * 2f - SIDEBAR_W - CART_W - 10f;
+            DrawGrid(new Rect(PAD + SIDEBAR_W + 5f, y, gridW, bodyH), balance);
+            DrawCartPanel(new Rect(PAD + SIDEBAR_W + 5f + gridW + 5f, y, CART_W, bodyH), balance);
             y += bodyH + 4f;
 
             // Divider
-            Divider(PAD, y, WIN_W - PAD * 2f); y += 4f;
+            Divider(PAD, y, W - PAD * 2f); y += 4f;
 
-            // Footer / cart bar
-            DrawFooter(new Rect(PAD, y, WIN_W - PAD * 2f, 44f), balance);
+            // Footer / balance bar
+            DrawFooter(new Rect(PAD, y, W - PAD * 2f, 44f), balance);
         }
 
         // ── Sidebar ───────────────────────────────────────────────────────────
 
         private void DrawSidebar(Rect r)
         {
-            GUI.color = new Color(1f, 1f, 1f, 0.04f);
+            GUI.color = new Color(0.06f, 0.08f, 0.11f, 0.9f);
             GUI.DrawTexture(r, _whiteTex);
             GUI.color = Color.white;
 
@@ -280,6 +417,7 @@ namespace BetterShop
             SafeScroll.End();
         }
 
+        [HideFromIl2Cpp]
         private void DrawCard(Rect r, BShopItem item, float balance)
         {
             GUI.DrawTexture(r, _cardBgTex);
@@ -334,6 +472,118 @@ namespace BetterShop
             GUI.color = Color.white;
         }
 
+        // ── Cart sidebar ──────────────────────────────────────────────────────
+
+        private void DrawCartPanel(Rect r, float balance)
+        {
+            // Panel backdrop + border (IPAM-like)
+            GUI.color = new Color(0.08f, 0.10f, 0.13f, 0.98f);
+            GUI.DrawTexture(r, _whiteTex);
+            GUI.color = Color.white;
+
+            float cx = r.x + 8f;
+            float cw = r.width - 16f;
+            float cy = r.y + 6f;
+
+            int cartCount = 0;
+            int cartTotal = 0;
+            try { cartCount = _shop?.cartUIItems?.Count ?? 0; } catch { }
+            try { cartTotal = _shop?.currentPrice ?? 0; } catch { }
+
+            GUI.Label(new Rect(cx, cy, cw, 20f), $"CART ({cartCount})", _titleStyle);
+            cy += 24f;
+            Divider(cx, cy, cw); cy += 5f;
+
+            float listH = r.height - (cy - r.y) - 84f;
+            var listR = new Rect(cx, cy, cw, Mathf.Max(60f, listH));
+
+            List<ShopCartItem> items = new();
+            try
+            {
+                var raw = _shop?.cartUIItems;
+                if (raw != null)
+                    foreach (var ci in raw)
+                    {
+                        if (ci == null) continue;
+                        try { var _ = ci.gameObject; items.Add(ci); }
+                        catch { /* destroyed — skip */ }
+                    }
+            }
+            catch { }
+
+            if (items.Count == 0)
+            {
+                GUI.Label(new Rect(cx + 2f, cy + 6f, cw - 4f, 40f),
+                    "Cart is empty.", _dimStyle);
+            }
+            else
+            {
+                float rowH = 44f;
+                float contentH = items.Count * (rowH + 4f);
+                _cartScroll = SafeScroll.Begin(listR, _cartScroll,
+                    new Rect(0f, 0f, listR.width - 14f, contentH));
+                float ry = 0f;
+                foreach (var ci in items)
+                {
+                    DrawCartRow(new Rect(0f, ry, listR.width - 14f, rowH), ci);
+                    ry += rowH + 4f;
+                }
+                SafeScroll.End();
+            }
+            cy += listR.height + 6f;
+
+            Divider(cx, cy, cw); cy += 5f;
+
+            GUI.Label(new Rect(cx, cy, cw, 20f), $"Total:  {cartTotal:N0} ₵", _priceStyle);
+            cy += 24f;
+
+            if (GUI.Button(new Rect(cx, cy, cw, 28f), "Clear Cart", _clearBtn))
+            {
+                try { _shop?.ButtonClear(); } catch { }
+            }
+            cy += 32f;
+
+            bool canCheckout = cartTotal > 0 && balance >= cartTotal;
+            GUI.color = canCheckout ? Color.white : new Color(1f, 0.4f, 0.4f);
+            if (GUI.Button(new Rect(cx, cy, cw, 28f), "Checkout →", _checkoutBtn)
+                && canCheckout)
+            {
+                GUI.color = Color.white;
+                Checkout();
+                return;
+            }
+            GUI.color = Color.white;
+        }
+
+        [HideFromIl2Cpp]
+        private void DrawCartRow(Rect r, ShopCartItem ci)
+        {
+            string name = "?";
+            int qty = 1, line = 0;
+            try { name = ci.itemName ?? ci.ItemID.ToString(); } catch { }
+            try { qty = ci.Quantity; } catch { }
+            try { line = ci.TotalPrice; } catch { }
+
+            GUI.color = new Color(1f, 1f, 1f, 0.05f);
+            GUI.DrawTexture(r, _whiteTex);
+            GUI.color = Color.white;
+
+            GUI.Label(new Rect(r.x + 6f, r.y + 2f, r.width - 76f, 22f), name, _cardNameStyle);
+            GUI.Label(new Rect(r.x + 6f, r.y + 22f, r.width - 76f, 18f),
+                $"×{qty}  ·  {line:N0} ₵", _dimStyle);
+
+            if (GUI.Button(new Rect(r.xMax - 64f, r.y + 9f, 28f, 26f), "−", _sortBtn))
+            {
+                try { ci.OnRemoveClicked(); } catch (Exception ex)
+                { MelonLogger.Error($"[BetterShop] Cart− failed: {ex.GetBaseException().Message}"); }
+            }
+            if (GUI.Button(new Rect(r.xMax - 32f, r.y + 9f, 28f, 26f), "+", _sortBtn))
+            {
+                try { ci.OnAddClicked(); } catch (Exception ex)
+                { MelonLogger.Error($"[BetterShop] Cart+ failed: {ex.GetBaseException().Message}"); }
+            }
+        }
+
         // ── Footer ────────────────────────────────────────────────────────────
 
         private void DrawFooter(Rect r, float balance)
@@ -376,6 +626,7 @@ namespace BetterShop
 
         // ── Actions ───────────────────────────────────────────────────────────
 
+        [HideFromIl2Cpp]
         private void AddToCart(BShopItem item)
         {
             try
@@ -394,17 +645,20 @@ namespace BetterShop
             try
             {
                 _shop?.ButtonCheckOut();
-                _open = false;
             }
             catch (Exception ex)
             {
                 MelonLogger.Error($"[BetterShop] Checkout failed: {ex}");
+                return;
             }
+            RestoreVanillaPanel();
+            _open = false;
         }
 
         private void CloseShop()
         {
             _open = false;
+            RestoreVanillaPanel();
             try { _shop?.ButtonReturnMainScreen(); } catch { }
         }
 
@@ -602,7 +856,7 @@ namespace BetterShop
 
         private void Divider(float x, float y, float w)
         {
-            GUI.color = new Color(0.28f, 0.28f, 0.33f);
+            GUI.color = new Color(0.14f, 0.17f, 0.22f, 0.8f);
             GUI.DrawTexture(new Rect(x, y, w, 1f), _whiteTex);
             GUI.color = Color.white;
         }
@@ -617,18 +871,19 @@ namespace BetterShop
             _whiteTex = MakeTex(1, 1, Color.white);
             UnityEngine.Object.DontDestroyOnLoad(_whiteTex);
 
-            _winBgTex = MakeTex(2, 2, new Color(0.07f, 0.07f, 0.10f, 0.98f));
+            // IPAM navy modal palette
+            _winBgTex = MakeTex(2, 2, new Color(0.08f, 0.10f, 0.13f, 0.98f));
             UnityEngine.Object.DontDestroyOnLoad(_winBgTex);
             _winStyle = new GUIStyle { normal = { background = _winBgTex }, padding = new RectOffset() };
 
-            _cardBgTex = MakeTex(2, 2, new Color(0.13f, 0.13f, 0.17f, 1f));
+            _cardBgTex = MakeTex(2, 2, new Color(0.10f, 0.12f, 0.16f, 1f));
             UnityEngine.Object.DontDestroyOnLoad(_cardBgTex);
 
             _titleStyle = new GUIStyle()
             {
-                fontSize  = 16,
+                fontSize  = 15,
                 fontStyle = FontStyle.Bold,
-                normal    = { textColor = Color.white }
+                normal    = { textColor = new Color(0.92f, 0.94f, 0.96f) }
             };
 
             _cardNameStyle = new GUIStyle()
@@ -636,19 +891,19 @@ namespace BetterShop
                 fontSize  = 12,
                 fontStyle = FontStyle.Bold,
                 wordWrap  = true,
-                normal    = { textColor = Color.white }
+                normal    = { textColor = new Color(0.92f, 0.94f, 0.96f) }
             };
 
             _labelStyle = new GUIStyle()
             {
                 fontSize = 13,
-                normal   = { textColor = Color.white }
+                normal   = { textColor = new Color(0.92f, 0.94f, 0.96f) }
             };
 
             _dimStyle = new GUIStyle()
             {
                 fontSize = 12,
-                normal   = { textColor = new Color(0.72f, 0.72f, 0.78f) }
+                normal   = { textColor = new Color(0.62f, 0.66f, 0.72f) }
             };
 
             _priceStyle = new GUIStyle()
@@ -658,18 +913,18 @@ namespace BetterShop
                 normal    = { textColor = new Color(1f, 0.85f, 0.28f) }
             };
 
-            // ── Shared textures ──────────────────────────────────────────────
-            var sidebarBg     = MakeTex(2, 2, new Color(0.18f, 0.18f, 0.22f));
-            var sidebarActBg  = MakeTex(2, 2, new Color(0.20f, 0.36f, 0.62f));
-            var hoverBg       = MakeTex(2, 2, new Color(0.26f, 0.26f, 0.32f));
-            var sortBg        = MakeTex(2, 2, new Color(0.20f, 0.20f, 0.25f));
-            var sortActBg     = MakeTex(2, 2, new Color(0.22f, 0.38f, 0.62f));
-            var addBg         = MakeTex(2, 2, new Color(0.14f, 0.48f, 0.24f));
-            var disabledBg    = MakeTex(2, 2, new Color(0.20f, 0.20f, 0.20f));
-            var checkoutBg    = MakeTex(2, 2, new Color(0.58f, 0.38f, 0.04f));
-            var clearBg       = MakeTex(2, 2, new Color(0.35f, 0.14f, 0.14f));
-            var closeBg       = MakeTex(2, 2, new Color(0.22f, 0.22f, 0.28f));
-            var searchBg      = MakeTex(2, 2, new Color(0.12f, 0.12f, 0.16f));
+            // ── Shared textures (IPAM navy) ───────────────────────────────────
+            var sidebarBg     = MakeTex(2, 2, new Color(0.10f, 0.12f, 0.16f));
+            var sidebarActBg  = MakeTex(2, 2, new Color(0.04f, 0.64f, 0.75f));
+            var hoverBg       = MakeTex(2, 2, new Color(0.16f, 0.19f, 0.25f));
+            var sortBg        = MakeTex(2, 2, new Color(0.11f, 0.13f, 0.17f));
+            var sortActBg     = MakeTex(2, 2, new Color(0.04f, 0.64f, 0.75f));
+            var addBg         = MakeTex(2, 2, new Color(0.14f, 0.42f, 0.24f));
+            var disabledBg    = MakeTex(2, 2, new Color(0.13f, 0.14f, 0.17f));
+            var checkoutBg    = MakeTex(2, 2, new Color(0.55f, 0.38f, 0.08f));
+            var clearBg       = MakeTex(2, 2, new Color(0.35f, 0.16f, 0.16f));
+            var closeBg       = MakeTex(2, 2, new Color(0.13f, 0.15f, 0.19f));
+            var searchBg      = MakeTex(2, 2, new Color(0.06f, 0.08f, 0.11f));
             foreach (var t in new[] { sidebarBg, sidebarActBg, hoverBg, sortBg, sortActBg,
                                        addBg, disabledBg, checkoutBg, clearBg, closeBg, searchBg })
                 UnityEngine.Object.DontDestroyOnLoad(t);
@@ -684,7 +939,7 @@ namespace BetterShop
                 padding   = sidePad,
                 normal    = { background = sidebarBg,    textColor = new Color(0.82f, 0.82f, 0.86f) },
                 hover     = { background = hoverBg,      textColor = Color.white },
-                active    = { background = sidebarActBg, textColor = Color.white },
+                active    = { background = sidebarActBg, textColor = new Color(0.02f, 0.07f, 0.12f) },
             };
 
             // active variant — rebuild from scratch (can't copy non-skin GUIStyle in Il2Cpp)
@@ -694,9 +949,9 @@ namespace BetterShop
                 fontStyle = FontStyle.Bold,
                 alignment = TextAnchor.MiddleLeft,
                 padding   = sidePad,
-                normal    = { background = sidebarActBg, textColor = Color.white },
+                normal    = { background = sidebarActBg, textColor = new Color(0.02f, 0.07f, 0.12f) },
                 hover     = { background = hoverBg,      textColor = Color.white },
-                active    = { background = sidebarActBg, textColor = Color.white },
+                active    = { background = sidebarActBg, textColor = new Color(0.02f, 0.07f, 0.12f) },
             };
 
             // ── Sort buttons ─────────────────────────────────────────────────
@@ -711,9 +966,9 @@ namespace BetterShop
             {
                 fontSize  = 12,
                 fontStyle = FontStyle.Bold,
-                normal    = { background = sortActBg, textColor = Color.white },
+                normal    = { background = sortActBg, textColor = new Color(0.02f, 0.07f, 0.12f) },
                 hover     = { background = hoverBg,   textColor = Color.white },
-                active    = { background = sortActBg, textColor = Color.white },
+                active    = { background = sortActBg, textColor = new Color(0.02f, 0.07f, 0.12f) },
             };
 
             // ── Add-to-cart ──────────────────────────────────────────────────

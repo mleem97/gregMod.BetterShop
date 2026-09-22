@@ -5,7 +5,7 @@ using Il2CppInterop.Runtime.Injection;
 using MelonLoader;
 using UnityEngine;
 
-[assembly: MelonInfo(typeof(BetterShop.BetterShopMod), "gregMod.BetterShop", "1.0.2", "TeamGreg Modding")]
+[assembly: MelonInfo(typeof(BetterShop.BetterShopMod), "gregMod.BetterShop", "1.0.3", "TeamGreg Modding")]
 [assembly: MelonGame("Waseku", "Data Center")]
 
 namespace BetterShop
@@ -43,7 +43,9 @@ namespace BetterShop
     {
         /// <summary>
         /// After ButtonShopScreen runs (opens the canvas and enables the shop panel),
-        /// immediately hide the vanilla item panel and hand off to our overlay.
+        /// hand off to our overlay. The vanilla item panel is hidden by the overlay
+        /// itself — and only after the overlay confirmed it could open — so a failed
+        /// open never leaves the vanilla shop in a broken hidden state.
         /// The canvas stays active so the game's cart / input handling remains intact.
         /// </summary>
         [HarmonyPatch(typeof(ComputerShop), "ButtonShopScreen")]
@@ -52,14 +54,11 @@ namespace BetterShop
         {
             try
             {
-                // Hide only the item-browser panel — the cart side-panel can stay hidden too
-                // since our overlay has its own cart footer.
-                if (__instance.shopScreen != null)
-                    __instance.shopScreen.SetActive(false);
+                if (__instance == null)
+                    return;
+                ShopOverlay.Open(__instance);
             }
-            catch { /* field may be null in some scenes */ }
-
-            ShopOverlay.Open(__instance);
+            catch { /* never break the vanilla shop flow */ }
         }
     }
 }

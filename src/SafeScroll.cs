@@ -30,7 +30,7 @@ namespace BetterShop
                     if (!_fallbackLogged)
                     {
                         _fallbackLogged = true;
-                        MelonLogger.Warning($"[BetterShop] GUI.BeginScrollView unavailable ({ex.GetType().Name}); using manual scroll fallback.");
+                        MelonLogger.Msg($"[BetterShop] GUI.BeginScrollView unavailable ({ex.GetType().Name}); using manual scroll fallback.");
                     }
                 }
             }
@@ -67,7 +67,11 @@ namespace BetterShop
             try { GUI.EndScrollView(); }
             catch (Exception ex)
             {
-                MelonLogger.Warning($"[BetterShop] GUI.EndScrollView failed ({ex.GetType().Name}); continuing.");
+                if (!_fallbackLogged)
+                {
+                    _fallbackLogged = true;
+                    MelonLogger.Msg($"[BetterShop] GUI.EndScrollView failed ({ex.GetType().Name}); continuing.");
+                }
             }
         }
     }
