@@ -50,7 +50,7 @@ namespace BetterShop
         private string _lastSearch;
         private int    _lastSort = -1;
 
-        // ── Layout (Webshop: ~90% × 90% des Screens, helle Store-Optik) ─────
+        // ── Layout (web shop: ~90% × 90% of the screen, light store look) ─────
         private const float CART_W    = 300f;
         private const float CARD_W    = 224f;
         private const float CARD_H    = 248f;
@@ -59,7 +59,7 @@ namespace BetterShop
         private Rect _winRect;
         private bool _winPlaced;
 
-        // ~81% der Screenflaeche (0.9 × 0.9), mit Mindest-/Maximalwerten.
+        // ~81% of the screen area (0.9 × 0.9), with min/max values.
         private float WinW => Mathf.Clamp(Screen.width * 0.9f, 1000f, 2200f);
         private float WinH => Mathf.Clamp(Screen.height * 0.9f, 640f, 1400f);
 
@@ -81,7 +81,7 @@ namespace BetterShop
 
         private static readonly string[] SortLabels = { "Cheapest", "Priciest", "Name" };
 
-        // ── Styles (heller Webshop: weiss/Hellgrau, Navy-Header, Orange) ────
+        // ── Styles (light web shop: white/light gray, navy header, orange) ────
         private bool       _stylesReady;
         private Texture2D  _whiteTex, _winBgTex, _cardBgTex;
         private GUIStyle   _winStyle;
@@ -110,9 +110,9 @@ namespace BetterShop
         // ── Rebuild flag (deferred to first OnGUI, not synchronous in patch) ──
         private bool _needsRebuild;
 
-        // ── Custom-Color-Handoff (Vanilla-Picker liegt unter IMGUI) ──────────
-        // Bei Farb-Items: Overlay kurz schliessen (Vanilla restaurieren), damit
-        // der Vanilla-Farbpicker bedienbar ist. Danach automatisch wieder oeffnen.
+        // ── Custom-color handoff (vanilla picker sits below IMGUI) ──────────
+        // For color items: briefly close the overlay (restore vanilla) so
+        // the vanilla color picker stays usable. Afterwards reopen automatically.
         private bool _awaitColorPick;
         private float _handoffAt;
         private GameObject _colorPickerGo;
@@ -126,8 +126,8 @@ namespace BetterShop
         private void Awake() { Instance = this; }
 
         /// <summary>
-        /// Pollt den Vanilla-Farbpicker: sobald er zu ist, Overlay wieder oeffnen.
-        /// Reine Beobachtung — wirft nie, aendert nichts am Vanilla-Flow.
+        /// Polls the vanilla color picker: once closed, reopen the overlay.
+        /// Pure observation — never throws, changes nothing in the vanilla flow.
         /// </summary>
         private void Update()
         {
@@ -149,7 +149,7 @@ namespace BetterShop
 
             if (timedOut && !pickerClosed)
             {
-                // Picker hängt (oder unsichtbar gesteuert): Vanilla-Flow lassen.
+                // Picker stuck (or invisibly controlled): keep the vanilla flow.
                 _awaitColorPick = false;
                 return;
             }
@@ -196,8 +196,8 @@ namespace BetterShop
             // Hide the whole vanilla shop UI group (not just shopScreen) so no
             // vanilla UI shines through behind our overlay. Game logic
             // (cart data, buy/checkout methods) doesn't need visuals.
-            // Canvas-Typ bewusst vermieden (fehlt in IL2CPP-Dummies):
-            // stattdessen alle Geschwister unter dem Parent mitschalten.
+            // Deliberately avoided the Canvas type (missing in IL2CPP dummies):
+            // instead toggle all siblings under the parent.
             try
             {
                 HideVanillaGroup(panel);
@@ -333,7 +333,7 @@ namespace BetterShop
         {
             try   { DrawWindow(); }
             catch (Exception ex) { MelonLogger.Error($"[BetterShop] DrawWindow: {ex}"); }
-            // Drag ueber den Header-Bereich (nicht ueber Content-Klicks).
+            // Drag over the header area (not over content clicks).
             try
             {
                 var e = Event.current;
@@ -344,10 +344,10 @@ namespace BetterShop
             catch { }
         }
 
-        // ── Deal-of-the-day Promo (aus RebuildItemList gecacht) ───────────────
+        // ── Deal-of-the-day promo (cached from RebuildItemList) ───────────────
         private string _dealText = "";
 
-        // ── Window (Webshop: Header, Promo, Kategorie-Pills, Grid, Warenkorb) ─
+        // ── Window (web shop: header, promo, category pills, grid, cart) ─
 
         private void DrawWindow()
         {
@@ -355,7 +355,7 @@ namespace BetterShop
             float H = _winRect.height;
             const float PAD = 14f;
 
-            // Heller Store-Hintergrund + duenner Rahmen
+            // Light store background + thin frame
             GUI.color = new Color(0.80f, 0.83f, 0.88f);
             GUI.DrawTexture(new Rect(0f, 0f, W, 1f), _whiteTex);
             GUI.DrawTexture(new Rect(0f, H - 1f, W, 1f), _whiteTex);
@@ -367,19 +367,19 @@ namespace BetterShop
             DrawStoreHeader(W);
             y += HEADER_H;
 
-            // Promo-Zeile (Deal of the day)
+            // Promo row (deal of the day)
             GUI.color = new Color(1f, 0.94f, 0.84f);
             GUI.DrawTexture(new Rect(0f, y, W, 26f), _whiteTex);
             GUI.color = Color.white;
             GUI.Label(new Rect(PAD, y + 5f, W - PAD * 2f, 18f), _dealText, _promoStyle);
             y += 26f;
 
-            // Kategorie-Pills
+            // Category pills
             y += 6f;
             DrawCategoryPills(new Rect(PAD, y, W - PAD * 2f, 32f));
             y += 38f;
 
-            // Toolbar: Trefferzahl links, Sortierung rechts
+            // Toolbar: hit count left, sorting right
             RefreshFiltered();
             GUI.Label(new Rect(PAD, y + 4f, 300f, 20f),
                 $"{_filtered.Count} product{(_filtered.Count == 1 ? "" : "s")}", _countStyle);
@@ -397,25 +397,25 @@ namespace BetterShop
 
             Divider(PAD, y, W - PAD * 2f); y += 6f;
 
-            // Body: Produktgrid | Warenkorb
+            // Body: product grid | cart
             float footerH = 52f;
             float bodyH = H - y - footerH - 8f;
             float gridW = W - PAD * 2f - CART_W - 10f;
             DrawGrid(new Rect(PAD, y, gridW, bodyH), GetFrameBalance());
             DrawCartPanel(new Rect(PAD + gridW + 10f, y, CART_W, bodyH), GetFrameBalance());
 
-            // Footer: Trust-Badges + Summen
+            // Footer: trust badges + totals
             DrawFooter(new Rect(PAD, H - footerH, W - PAD * 2f, footerH - 8f), GetFrameBalance());
         }
 
-        // ── Store-Header (Navy: Logo, Suche, Balance, Warenkorb, Schliessen) ──
+        // ── Store header (navy: logo, search, balance, cart, close) ──
 
         private void DrawStoreHeader(float W)
         {
             const float PAD = 14f;
             GUI.color = new Color(0.04f, 0.07f, 0.13f);
             GUI.DrawTexture(new Rect(0f, 0f, W, HEADER_H), _whiteTex);
-            // Orange Akzentlinie unten
+            // Orange accent line at the bottom
             GUI.color = new Color(1f, 0.42f, 0f);
             GUI.DrawTexture(new Rect(0f, HEADER_H - 3f, W, 3f), _whiteTex);
             GUI.color = Color.white;
@@ -423,7 +423,7 @@ namespace BetterShop
             GUI.Label(new Rect(PAD, 8f, 260f, 28f), "GREGSTORE", _logoStyle);
             GUI.Label(new Rect(PAD + 2f, 36f, 260f, 18f), "Servers & Network Gear", _tagStyle);
 
-            // Suche (zentriert)
+            // Search (centered)
             float searchW = Mathf.Min(440f, W * 0.32f);
             float sx = (W - searchW) * 0.5f;
             var searchR = new Rect(sx, 19f, searchW, 26f);
@@ -431,23 +431,23 @@ namespace BetterShop
             GUI.Label(new Rect(searchR.x + 8f, searchR.y + 5f, searchR.width - 16f, 18f),
                       _search.Length > 0 ? _search + "▌" : "Search servers, switches, cables ...", _searchHintStyle);
 
-            // Balance (links vom Warenkorb, ohne Ueberlappung)
+            // Balance (left of the cart, no overlap)
             float balance = GetFrameBalance();
             GUI.Label(new Rect(W - PAD - 364f, 22f, 160f, 22f),
                 $"{balance:N0} ₵", _balanceStyle);
 
-            // Warenkorb-Button mit Stueckzahl
+            // Cart button with item count
             int cartCount = 0;
             try { cartCount = _shop?.cartUIItems?.Count ?? 0; } catch { }
             if (BtnOnce(new Rect(W - PAD - 190f, 17f, 110f, 30f), $"Cart ({cartCount})", 1, _cartBtn))
-            { /* Warenkorb ist rechts dauerhaft sichtbar */ }
+            { /* Cart is permanently visible on the right */ }
 
-            // Schliessen
+            // Close
             if (BtnOnce(new Rect(W - PAD - 64f, 17f, 64f, 30f), "× Close", 2, _closeBtn))
             { CloseShop(); return; }
         }
 
-        // ── Kategorie-Pills (horizontale Webshop-Navigation) ──────────────────
+        // ── Category pills (horizontal web shop navigation) ──────────────────
 
         private void DrawCategoryPills(Rect r)
         {
@@ -460,7 +460,7 @@ namespace BetterShop
 
                 bool active = _activeCategory == cat;
                 string label = $"{cat} ({count})";
-                // Breite grob aus Textlaenge schaetzen (IMGUI ohne CalcSize-Overhead)
+                // Roughly estimate width from text length (IMGUI without CalcSize overhead)
                 float w = Mathf.Clamp(34f + label.Length * 7.2f, 70f, 190f);
                 if (x + w > r.xMax) break;
 
@@ -510,7 +510,7 @@ namespace BetterShop
         [HideFromIl2Cpp]
         private void DrawCard(Rect r, BShopItem item, float balance)
         {
-            // Weisse Karte + heller Rahmen
+            // White card + light frame
             GUI.DrawTexture(r, _whiteTex);
             GUI.color = new Color(0.82f, 0.85f, 0.90f);
             GUI.DrawTexture(new Rect(r.x, r.y, r.width, 1f), _whiteTex);
@@ -519,7 +519,7 @@ namespace BetterShop
             GUI.DrawTexture(new Rect(r.xMax - 1f, r.y, 1f, r.height), _whiteTex);
             GUI.color = Color.white;
 
-            // Kategorie-Farbbalken oben
+            // Category color bar at the top
             GUI.color = CategoryColor(item.Category);
             GUI.DrawTexture(new Rect(r.x, r.y, r.width, 4f), _whiteTex);
             GUI.color = Color.white;
@@ -529,7 +529,7 @@ namespace BetterShop
             float cw = r.width - CP * 2f;
             float cy = r.y + 10f;
 
-            // Produktbild-Flaeche (Icon zentriert, 64px)
+            // Product image area (icon centered, 64px)
             float imgH = 76f;
             GUI.color = new Color(0.96f, 0.97f, 0.98f);
             GUI.DrawTexture(new Rect(cx, cy, cw, imgH), _whiteTex);
@@ -539,11 +539,11 @@ namespace BetterShop
             GUI.DrawTexture(new Rect(cx + (cw - iconS) * 0.5f, cy + (imgH - iconS) * 0.5f, iconS, iconS), iconTex);
             cy += imgH + 6f;
 
-            // Name (2 Zeilen)
+            // Name (2 lines)
             GUI.Label(new Rect(cx, cy, cw, 36f), item.Name, _cardNameStyle);
             cy += 38f;
 
-            // Bewertung (deterministisch aus ItemId) + Kategorie
+            // Rating (deterministic from item ID) + category
             int stars = 3 + (Mathf.Abs(item.ItemId * 7 + item.Price) % 3);
             int reviews = 3 + (Mathf.Abs(item.ItemId * 13) % 97);
             GUI.Label(new Rect(cx, cy, cw, 16f),
@@ -554,7 +554,7 @@ namespace BetterShop
             GUI.color = Color.white;
             cy += 17f;
 
-            // Verfuegbarkeit + Unlock
+            // Availability + unlock
             bool locked = !item.IsUnlocked;
             bool canUnlock = false;
             if (locked)
@@ -573,7 +573,7 @@ namespace BetterShop
             }
             cy += 18f;
 
-            // Preis (eigene Zeile nach Verfuegbarkeit, keine Ueberlappung)
+            // Price (own line after availability, no overlap)
             float btnH = 30f;
             GUI.Label(new Rect(cx, cy, cw, 24f), $"{item.Price:N0} ₵", _cardPriceStyle);
 
@@ -614,7 +614,7 @@ namespace BetterShop
             GUI.color = Color.white;
         }
 
-        // ── XP-Unlock (Vanilla-Logik via ShopItem.UnlockButton) ──────────────
+        // ── XP unlock (vanilla logic via ShopItem.UnlockButton) ──────────────
 
         [HideFromIl2Cpp]
         private void UnlockItem(BShopItem item)
@@ -642,7 +642,7 @@ namespace BetterShop
 
         private void DrawCartPanel(Rect r, float balance)
         {
-            // Weisse Warenkorb-Karte + heller Rahmen
+            // White cart card + light frame
             GUI.DrawTexture(r, _whiteTex);
             GUI.color = new Color(0.82f, 0.85f, 0.90f);
             GUI.DrawTexture(new Rect(r.x, r.y, r.width, 1f), _whiteTex);
@@ -760,7 +760,7 @@ namespace BetterShop
             }
         }
 
-        // ── Footer (Trust-Badges + Zusammenfassung) ────────────────────────
+        // ── Footer (trust badges + summary) ────────────────────────
 
         private void DrawFooter(Rect r, float balance)
         {
@@ -796,10 +796,10 @@ namespace BetterShop
         }
 
         /// <summary>
-        /// Custom-Color-Items: Vanilla oeffnet den FlexibleColorPicker (uGUI) —
-        /// der liegt unter unserem IMGUI-Fenster und waere unbedienbar. Deshalb:
-        /// Kauf anstossen (Picker oeffnet), unser Overlay schliessen (Vanilla
-        /// restaurieren), nach Picker-Ende automatisch wieder oeffnen (Update).
+        /// Custom-color items: vanilla opens the FlexibleColorPicker (uGUI) —
+        /// it sits below our IMGUI window and would be unusable. Therefore:
+        /// trigger the purchase (picker opens), close our overlay (restore
+        /// vanilla), reopen automatically after the picker closes (Update).
         /// </summary>
         [HideFromIl2Cpp]
         private void AddCustomColorItem(BShopItem item)
@@ -930,7 +930,7 @@ namespace BetterShop
             int modCount = _catCounts.GetValueOrDefault("Mods", 0);
             MelonLogger.Msg($"[BetterShop] Loaded {_allItems.Count} shop items ({modCount} mod items).");
 
-            // Deal of the day: guenstigstes freigeschaltetes Vanilla-Item.
+            // Deal of the day: cheapest unlocked vanilla item.
             try
             {
                 var deal = _allItems
@@ -1078,10 +1078,10 @@ namespace BetterShop
             GUI.color = Color.white;
         }
 
-        // ── Klick-sichere Buttons (explizites MouseDown/MouseUp) ─────────────
-        // GUI.Window auf IL2CPP malt oft Hover auf GUI.Button, feuert aber nie
-        // Klicks. Deshalb: eigener Control-Flow via GetControlID (wie IPAM).
-        // Dedupe schuetzt vor Doppelfeuer bei Layout/Repaint im selben Frame.
+        // ── Click-safe buttons (explicit mouse down/up) ─────────────
+        // GUI.Window on IL2CPP often paints hover on GUI.Button but never
+        // fires clicks. Therefore: own control flow via GetControlID (like IPAM).
+        // Dedupe guards against double-firing on layout/repaint in the same frame.
         private int _btnDedupeFrame = -1;
         private int _btnDedupeKey;
 
@@ -1137,7 +1137,7 @@ namespace BetterShop
             _whiteTex = MakeTex(1, 1, Color.white);
             UnityEngine.Object.DontDestroyOnLoad(_whiteTex);
 
-            // Heller Store-Hintergrund
+            // Light store background
             _winBgTex = MakeTex(2, 2, new Color(0.93f, 0.94f, 0.96f, 1f));
             UnityEngine.Object.DontDestroyOnLoad(_winBgTex);
             _winStyle = new GUIStyle { normal = { background = _winBgTex }, padding = new RectOffset() };
@@ -1145,7 +1145,7 @@ namespace BetterShop
             _cardBgTex = MakeTex(2, 2, Color.white);
             UnityEngine.Object.DontDestroyOnLoad(_cardBgTex);
 
-            // Textfarben: dunkles Navy auf hell, weiss auf Navy
+            // Text colors: dark navy on light, white on navy
             var ink     = new Color(0.10f, 0.13f, 0.18f);
             var inkDim  = new Color(0.42f, 0.46f, 0.53f);
             var paper   = new Color(0.97f, 0.98f, 0.99f);
@@ -1208,7 +1208,7 @@ namespace BetterShop
                                         closeBg, searchBg, headerBoxBg, cartBtnBg })
                 UnityEngine.Object.DontDestroyOnLoad(t);
 
-            // ── Sidebar buttons (ungenutzt im Store-Layout, kept for compat) ──
+            // ── Sidebar buttons (unused in the store layout, kept for compat) ──
             var sidePad = new RectOffset(); sidePad.left = 10; sidePad.right = 4;
 
             _sidebarBtn = new GUIStyle()
@@ -1266,7 +1266,7 @@ namespace BetterShop
                 hover     = { background = disabledBg, textColor = new Color(0.55f, 0.57f, 0.60f) },
             };
 
-            // ── Checkout (Orange, gross) ───────────────────────────────────────
+            // ── Checkout (orange, large) ───────────────────────────────────────
             _checkoutBtn = new GUIStyle()
             {
                 fontSize  = 13,
@@ -1275,7 +1275,7 @@ namespace BetterShop
                 hover     = { background = addHoverBg, textColor = Color.white },
             };
 
-            // ── Clear (weiss, roter Text) ──────────────────────────────────────
+            // ── Clear (white, red text) ──────────────────────────────────────
             _clearBtn = new GUIStyle()
             {
                 fontSize = 12,
@@ -1283,7 +1283,7 @@ namespace BetterShop
                 hover    = { background = hoverBg, textColor = new Color(0.75f, 0.20f, 0.20f) },
             };
 
-            // ── Back/Close (Navy-hell) ─────────────────────────────────────────
+            // ── Back/Close (light navy) ─────────────────────────────────────────
             _closeBtn = new GUIStyle()
             {
                 fontSize = 13,
@@ -1300,7 +1300,7 @@ namespace BetterShop
                 padding = searchPad
             };
 
-            // ── Store-Header ───────────────────────────────────────────────────
+            // ── Store header ───────────────────────────────────────────────────
             _logoStyle = new GUIStyle()
             {
                 fontSize  = 22,
@@ -1374,7 +1374,7 @@ namespace BetterShop
                 normal    = { textColor = ink }
             };
 
-            // ── Produktkarte ───────────────────────────────────────────────────
+            // ── Product card ───────────────────────────────────────────────────
             _cardPriceStyle = new GUIStyle()
             {
                 fontSize  = 16,
@@ -1404,7 +1404,7 @@ namespace BetterShop
                 normal    = { textColor = orangeD }
             };
 
-            // ── Warenkorb ──────────────────────────────────────────────────────
+            // ── Cart ──────────────────────────────────────────────────────
             _sectionTitle = new GUIStyle()
             {
                 fontSize  = 15,
